@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-視頻下載器 - 雲端部署版 (v3.1)
+視頻下載器 - 雲端部署版 (v3.2)
 支持部署到 Render、PythonAnywhere 等免費服務器
 支持 Bilibili、抖音、快手等主流網站
 """
@@ -230,6 +230,55 @@ def expand_short_url(url):
     return url
 
 
+def find_downloaded_file(task_id):
+    """查找已下載的文件 - 擴展搜索範圍"""
+    # 搜索所有可能的視頻擴展名
+    extensions = ['.mp4', '.webm', '.mkv', '.flv', '.mov', '.avi', '.m4v', '.3gp', '.ts']
+    
+    print(f"[FILE] 開始搜索任務 {task_id} 的文件...")
+    print(f"[FILE] 搜索目錄: {DOWNLOAD_DIR.absolute()}")
+    
+    # 方法1: 按擴展名搜索
+    for ext in extensions:
+        filepath = DOWNLOAD_DIR / f'{task_id}{ext}'
+        if filepath.exists():
+            size = filepath.stat().st_size
+            print(f"[FILE] 找到文件(方法1): {filepath.name}, 大小: {size} bytes")
+            return filepath
+    
+    # 方法2: 搜索目錄中所有包含 task_id 的文件
+    for file in DOWNLOAD_DIR.iterdir():
+        if file.is_file() and task_id in file.name:
+            size = file.stat().st_size
+            print(f"[FILE] 找到文件(方法2): {file.name}, 大小: {size} bytes")
+            return file
+    
+    # 方法3: 搜索最近修改的文件（60秒內）
+    current_time = datetime.now().timestamp()
+    recent_files = []
+    for file in DOWNLOAD_DIR.iterdir():
+        if file.is_file():
+            mtime = file.stat().st_mtime
+            if current_time - mtime < 60:  # 60秒內修改的文件
+                recent_files.append((file, mtime))
+    
+    if recent_files:
+        # 返回最近修改的文件
+        recent_files.sort(key=lambda x: x[1], reverse=True)
+        file = recent_files[0][0]
+        size = file.stat().st_size
+        print(f"[FILE] 找到文件(方法3-最近修改): {file.name}, 大小: {size} bytes")
+        return file
+    
+    # 方法4: 列出目錄內容供調試
+    print(f"[FILE] 未找到文件，當前目錄內容:")
+    for file in DOWNLOAD_DIR.iterdir():
+        if file.is_file():
+            print(f"[FILE]   - {file.name} ({file.stat().st_size} bytes)")
+    
+    return None
+
+
 def download_video_task(task_id, url):
     """後台下載視頻任務"""
     import traceback
@@ -266,6 +315,7 @@ def download_video_task(task_id, url):
                     task['progress'] = progress
             elif d['status'] == 'finished':
                 task['progress'] = 100
+                print(f"[{task_id}] yt-dlp 報告下載完成")
         
         # 基礎配置
         ydl_opts = {
@@ -273,96 +323,76 @@ def download_video_task(task_id, url):
             'progress_hooks': [progress_hook],
             'quiet': False,
             'no_warnings': False,
-            'max_filesize': 52428800,  # 50MB
             'merge_output_format': 'mp4',
-            'force_ipv4': True,
         }
         
-        # 構建請求頭 - 模擬真實瀏覽器
+        # 構建請求頭
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Cache-Control': 'no-cache',
         }
         
         if is_bilibili:
             print(f"[{task_id}] 應用 Bilibili 專用配置")
             headers['Referer'] = 'https://www.bilibili.com'
-            headers['Origin'] = 'https://www.bilibili.com'
-            
-            # Bilibili 提取器參數 - 關鍵配置
+            # 先不限制文件大小，讓下載完成後再檢查
+            ydl_opts['format'] = 'best/worst'
             ydl_opts['extractor_args'] = {
                 'bilibili': {
                     'prefer_flv': False,
                 }
             }
             
-            # 格式選擇：優先嘗試各種格式，不限於 mp4
-            # 先嘗試獲取任何小於 50M 的格式
-            ydl_opts['format'] = 'best[filesize<50M]/worst[filesize<50M]/best/worst/bestvideo+bestaudio/bestvideo/bestaudio'
-            
         elif is_douyin:
             print(f"[{task_id}] 應用抖音專用配置")
             headers['Referer'] = 'https://www.douyin.com/'
-            headers['Origin'] = 'https://www.douyin.com'
             ydl_opts['format'] = 'best/worst'
             
         elif is_kuaishou:
             print(f"[{task_id}] 應用快手專用配置")
             headers['Referer'] = 'https://www.kuaishou.com/'
-            headers['Origin'] = 'https://www.kuaishou.com'
             ydl_opts['format'] = 'best/worst'
             
         else:
             print(f"[{task_id}] 應用通用配置")
-            ydl_opts['format'] = 'best[filesize<50M]/best/worst'
+            ydl_opts['format'] = 'best[filesize<100M]/worst'
         
         ydl_opts['headers'] = headers
         
         print(f"[{task_id}] 格式選項: {ydl_opts.get('format')}")
-        print(f"[{task_id}] 請求頭: {headers}")
         
-        # 第一步：嘗試提取視頻信息（不下載）
+        # 提取視頻信息（不下載）
         print(f"[{task_id}] 步驟1: 提取視頻信息...")
         info = None
-        formats_available = []
-        
         try:
             info_opts = ydl_opts.copy()
             info_opts['quiet'] = True
-            info_opts['no_warnings'] = True
             
             with yt_dlp.YoutubeDL(info_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 
             if info:
-                formats_available = info.get('formats', [])
+                formats = info.get('formats', [])
                 title = info.get('title', 'Unknown')
                 duration = info.get('duration', 0)
                 
                 print(f"[{task_id}] 視頻標題: {title}")
                 print(f"[{task_id}] 視頻時長: {duration}秒")
-                print(f"[{task_id}] 可用格式數: {len(formats_available)}")
+                print(f"[{task_id}] 可用格式數: {len(formats)}")
                 
-                # 打印前5個格式的詳細信息（用於調試）
-                if formats_available:
-                    print(f"[{task_id}] 前5個格式詳細:")
-                    for i, f in enumerate(formats_available[:5]):
-                        filesize = f.get('filesize') or f.get('filesize_approx', 'unknown')
-                        format_id = f.get('format_id', 'unknown')
-                        ext = f.get('ext', 'unknown')
-                        print(f"[{task_id}]   [{i}] ID:{format_id} 擴展名:{ext} 大小:{filesize}")
-                else:
-                    print(f"[{task_id}] 警告: 沒有找到任何可用格式！")
-                    
+                # 估算文件大小
+                if formats:
+                    for f in formats[:3]:
+                        filesize = f.get('filesize') or f.get('filesize_approx', 0)
+                        if filesize:
+                            print(f"[{task_id}] 格式 {f.get('format_id')}: {filesize/1024/1024:.2f}MB")
+                        
         except Exception as extract_err:
             print(f"[{task_id}] 提取信息失敗: {extract_err}")
-            print(traceback.format_exc())
             info = None
         
-        # 第二步：下載視頻
+        # 下載視頻
         print(f"[{task_id}] 步驟2: 開始下載...")
         
         try:
@@ -371,19 +401,25 @@ def download_video_task(task_id, url):
                 
                 if info:
                     task['title'] = info.get('title', '未知標題')
-                    print(f"[{task_id}] 下載完成: {task['title']}")
+                    print(f"[{task_id}] yt-dlp 報告提取完成: {task['title']}")
                     
-                    # 查找下載的文件
-                    found_file = None
-                    for ext in ['.mp4', '.webm', '.mkv', '.flv', '.mov']:
-                        filepath = DOWNLOAD_DIR / f'{task_id}{ext}'
-                        if filepath.exists():
-                            found_file = filepath
-                            print(f"[{task_id}] 找到文件: {filepath} ({filepath.stat().st_size} bytes)")
-                            break
+                    # 嘗試找到下載的文件
+                    found_file = find_downloaded_file(task_id)
                     
                     if found_file:
-                        safe_title = re.sub(r'[<>:"/\\|?*]', '_', task['title'])[:50]
+                        file_size = found_file.stat().st_size
+                        print(f"[{task_id}] 找到文件: {found_file.name}, 大小: {file_size/1024/1024:.2f}MB")
+                        
+                        # 檢查文件大小（50MB限制）
+                        if file_size > 52 * 1024 * 1024:  # 52MB，留點餘量
+                            print(f"[{task_id}] 文件超過50MB限制，刪除")
+                            found_file.unlink()
+                            task['status'] = 'failed'
+                            task['error'] = f'視頻大小為 {file_size/1024/1024:.1f}MB，超過 50MB 限制'
+                            return
+                        
+                        # 重命名文件
+                        safe_title = re.sub(r'[<>:\"/\\|?*]', '_', task['title'])[:50]
                         new_filename = f"{safe_title}{found_file.suffix}"
                         new_filepath = DOWNLOAD_DIR / new_filename
                         
@@ -397,9 +433,9 @@ def download_video_task(task_id, url):
                         task['filename'] = new_filename
                         print(f"[{task_id}] 文件重命名為: {new_filename}")
                     else:
-                        task['status'] = 'failed'
-                        task['error'] = '下載完成但未找到文件，可能是格式不支持或文件超過50MB'
                         print(f"[{task_id}] 錯誤: 未找到下載的文件")
+                        task['status'] = 'failed'
+                        task['error'] = '下載過程出錯，可能是視頻格式不支持或網絡問題。請嘗試其他視頻。'
                         return
                         
         except Exception as download_err:
@@ -462,7 +498,7 @@ def not_found(e):
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("  視頻下載器 - 雲端版 v3.1")
+    print("  視頻下載器 - 雲端版 v3.2")
     print("=" * 60)
     print("\n訪問地址: http://localhost:5000")
     print("密碼: felix96\n")
