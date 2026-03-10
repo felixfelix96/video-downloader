@@ -409,14 +409,26 @@ def download_video_task(task_id, url):
                     
                     if found_file:
                         file_size = found_file.stat().st_size
-                        print(f"[{task_id}] 找到文件: {found_file.name}, 大小: {file_size/1024/1024:.2f}MB")
+                        file_size_mb = file_size / 1024 / 1024
+                        print(f"[{task_id}] 找到文件: {found_file.name}, 大小: {file_size_mb:.2f}MB")
                         
                         # 檢查文件大小（50MB限制）
                         if file_size > 52 * 1024 * 1024:  # 52MB，留點餘量
                             print(f"[{task_id}] 文件超過50MB限制，刪除")
                             found_file.unlink()
                             task['status'] = 'failed'
-                            task['error'] = f'視頻大小為 {file_size/1024/1024:.1f}MB，超過 50MB 限制'
+                            # 詳細的錯誤提示
+                            task['error'] = (
+                                f'❌ 視頻大小超過免費版限制\n\n'
+                                f'• 視頻大小: {file_size_mb:.1f} MB\n'
+                                f'• 免費限制: 50 MB\n\n'
+                                f'原因說明：\n'
+                                f'1. Render 免費服務器存儲空間有限\n'
+                                f'2. 該視頻時長較長或畫質較高\n\n'
+                                f'建議：\n'
+                                f'• 選擇較短的視頻（3分鐘以內）\n'
+                                f'• 或使用其他工具下載'
+                            )
                             return
                         
                         # 重命名文件
@@ -436,7 +448,18 @@ def download_video_task(task_id, url):
                     else:
                         print(f"[{task_id}] 錯誤: 未找到下載的文件")
                         task['status'] = 'failed'
-                        task['error'] = '下載過程出錯，可能是視頻格式不支持或網絡問題。請嘗試其他視頻。'
+                        # 詳細的錯誤提示
+                        task['error'] = (
+                            f'❌ 下載失敗 - 無法找到下載文件\n\n'
+                            f'可能原因：\n'
+                            f'1. 視頻格式不支持（嘗試了 mp4/webm/mkv/flv 等格式）\n'
+                            f'2. yt-dlp 下載過程中出錯\n'
+                            f'3. 服務器存儲權限問題\n\n'
+                            f'建議：\n'
+                            f'• 嘗試其他視頻鏈接\n'
+                            f'• 複製完整的 Bilibili 視頻網址（非短鏈接）\n'
+                            f'• 如持續失敗，請聯繫管理員查看服務器日誌'
+                        )
                         return
                         
         except Exception as download_err:
@@ -458,37 +481,136 @@ def download_video_task(task_id, url):
             print(f"[{task_id}] 錯誤信息: {error_msg}")
             print(f"[{task_id}] 錯誤追蹤:\n{error_trace}")
             
-            # 分析錯誤類型
+            # 分析錯誤類型，提供詳細的錯誤提示
             error_lower = error_msg.lower()
             url_lower = url.lower() if 'url' in locals() else ''
             is_bilibili = 'bilibili' in url_lower
             
             if 'format is not available' in error_lower:
                 if is_bilibili:
-                    task['error'] = 'Bilibili錯誤：該視頻無可用格式。可能原因：1) 會員專屬 2) 版權限制 3) 需要登錄。請嘗試其他公開視頻'
+                    task['error'] = (
+                        f'❌ Bilibili 視頻無可用格式\n\n'
+                        f'可能原因：\n'
+                        f'1. 會員專屬視頻（需要大會員）\n'
+                        f'2. 版權保護的番劇/電影\n'
+                        f'3. 視頻已被刪除或下架\n\n'
+                        f'建議：\n'
+                        f'• 嘗試其他公開的普通視頻\n'
+                        f'• 確保視頻不需要登錄即可觀看'
+                    )
                 else:
-                    task['error'] = '該視頻格式不支持，請嘗試其他視頻'
+                    task['error'] = (
+                        f'❌ 該視頻無可用格式\n\n'
+                        f'可能原因：\n'
+                        f'• 視頻網站不支持\n'
+                        f'• 視頻已被刪除\n\n'
+                        f'建議：嘗試其他視頻'
+                    )
             elif 'unable to extract' in error_lower:
                 if is_bilibili and 'b23.tv' in original_url:
-                    task['error'] = '無法提取視頻信息，短鏈接可能已過期或無效。請複製完整的 Bilibili 視頻網址（如 https://www.bilibili.com/video/BVxxxxx）'
+                    task['error'] = (
+                        f'❌ 無法提取短鏈接視頻信息\n\n'
+                        f'可能原因：\n'
+                        f'• b23.tv 短鏈接已過期（有效期通常24小時）\n'
+                        f'• 短鏈接被限制訪問\n\n'
+                        f'建議：\n'
+                        f'• 在 Bilibili App/網頁中重新複製視頻鏈接\n'
+                        f'• 使用完整的視頻網址：\n'
+                        f'  https://www.bilibili.com/video/BVxxxxx'
+                    )
                 else:
-                    task['error'] = '無法提取視頻信息，請檢查網址是否正確'
+                    task['error'] = (
+                        f'❌ 無法提取視頻信息\n\n'
+                        f'可能原因：\n'
+                        f'• 視頻網址錯誤或無效\n'
+                        f'• 視頻已被刪除或設為私密\n\n'
+                        f'建議：\n'
+                        f'• 檢查網址是否正確\n'
+                        f'• 在瀏覽器中確認視頻可以正常播放'
+                    )
             elif 'not available in your country' in error_lower or 'region' in error_lower:
-                task['error'] = '該視頻在服務器所在地區不可用（地區限制）'
+                task['error'] = (
+                    f'❌ 地區限制錯誤\n\n'
+                    f'說明：\n'
+                    f'該視頻僅限特定地區觀看\n\n'
+                    f'原因：\n'
+                    f'• 服務器位於美國（Render）\n'
+                    f'• 某些視頻僅限中國大陸訪問\n\n'
+                    f'建議：\n'
+                    f'• 嘗試其他無地區限制的視頻\n'
+                    f'• 或使用其他下載工具'
+                )
             elif 'sign in' in error_lower or 'login' in error_lower:
-                task['error'] = '該視頻需要登錄才能訪問'
+                task['error'] = (
+                    f'❌ 需要登錄才能訪問\n\n'
+                    f'說明：\n'
+                    f'該視頻僅限登錄用戶觀看\n\n'
+                    f'可能原因：\n'
+                    f'• UP主設置了觀看權限\n'
+                    f'• 敏感內容限制\n\n'
+                    f'建議：\n'
+                    f'• 嘗試其他公開視頻\n'
+                    f'• 該工具不支持登錄功能'
+                )
             elif 'copyright' in error_lower:
-                task['error'] = '該視頻因版權原因無法下載'
+                task['error'] = (
+                    f'❌ 版權保護限制\n\n'
+                    f'說明：\n'
+                    f'該視頻受版權保護，無法下載\n\n'
+                    f'常見情況：\n'
+                    f'• 電影、電視劇\n'
+                    f'• 音樂MV\n'
+                    f'• 有版權聲明的內容'
+                )
             elif 'filesize' in error_lower or '50m' in error_lower:
-                task['error'] = '視頻超過 50MB 限制，無法下載'
+                task['error'] = (
+                    f'❌ 視頻超過 50MB 限制\n\n'
+                    f'說明：\n'
+                    f'免費版服務器存儲空間有限，\n'
+                    f'無法下載大文件。\n\n'
+                    f'建議：\n'
+                    f'• 選擇較短的視頻（3分鐘以內）\n'
+                    f'• 或降低視頻畫質後再試'
+                )
             elif '403' in error_msg:
-                task['error'] = '訪問被拒絕 (403)，可能是服務器IP被限制或需要登錄'
+                task['error'] = (
+                    f'❌ 訪問被拒絕 (403)\n\n'
+                    f'可能原因：\n'
+                    f'• 服務器IP被視頻網站封禁\n'
+                    f'• 需要登錄才能訪問\n'
+                    f'• 訪問頻率過高被限制\n\n'
+                    f'建議：\n'
+                    f'• 稍後重試\n'
+                    f'• 嘗試其他視頻'
+                )
             elif '404' in error_msg:
-                task['error'] = '視頻不存在 (404)，請檢查網址'
+                task['error'] = (
+                    f'❌ 視頻不存在 (404)\n\n'
+                    f'可能原因：\n'
+                    f'• 視頻已被刪除\n'
+                    f'• 視頻網址錯誤\n'
+                    f'• UP主設為私密\n\n'
+                    f'建議：檢查網址是否正確'
+                )
             elif 'timeout' in error_lower:
-                task['error'] = '連接超時，請重試'
+                task['error'] = (
+                    f'❌ 連接超時\n\n'
+                    f'可能原因：\n'
+                    f'• 網絡不穩定\n'
+                    f'• 視頻網站響應慢\n'
+                    f'• 服務器資源繁忙\n\n'
+                    f'建議：請重試'
+                )
             else:
-                task['error'] = f'下載失敗: {error_msg[:120]}'
+                # 未知錯誤，顯示簡短的錯誤信息
+                task['error'] = (
+                    f'❌ 下載失敗\n\n'
+                    f'錯誤信息：{error_msg[:100]}\n\n'
+                    f'建議：\n'
+                    f'• 嘗試其他視頻\n'
+                    f'• 檢查網址是否正確\n'
+                    f'• 稍後重試'
+                )
 
 
 @app.errorhandler(404)

@@ -258,8 +258,21 @@
         }
         
         .error-text {
-            color: #f44336;
+            color: #333;
             margin-bottom: 20px;
+            text-align: left;
+            background: #ffebee;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #f44336;
+            white-space: pre-line;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        
+        .error-text strong {
+            color: #f44336;
+            font-weight: bold;
         }
         
         /* 提示信息 */
@@ -480,7 +493,17 @@
         function showError(error) {
             document.getElementById('waitingSection').classList.remove('active');
             document.getElementById('errorSection').classList.add('active');
-            document.getElementById('errorText').textContent = error || '提取失敗，請重試';
+            
+            // 將換行符轉換為 HTML 換行，並處理標題格式
+            let formattedError = error || '提取失敗，請重試';
+            
+            // 處理標題（❌ 開頭的行）
+            formattedError = formattedError.replace(/^(❌ .+)$/gm, '<strong style="color:#f44336;font-size:16px;display:block;margin-bottom:10px;">$1</strong>');
+            
+            // 處理子標題（可能原因/建議/說明等）
+            formattedError = formattedError.replace(/^([•] .+)$/gm, '<span style="color:#666;">$1</span>');
+            
+            document.getElementById('errorText').innerHTML = formattedError;
         }
         
         // 下載視頻
