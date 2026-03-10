@@ -201,11 +201,12 @@ def download_task(task_id, url):
                 task['progress'] = 100
                 print(f"[{task_id}] yt-dlp: 下載完成")
         
-        # 配置 - 最簡配置，避免複雜選項導致問題
+        # 配置 - 使用多個回退格式確保成功
         ydl_opts = {
             'outtmpl': str(DOWNLOAD_DIR / f'{task_id}.%(ext)s'),
             'progress_hooks': [progress_hook],
-            'format': 'worst',  # 使用最差畫質，確保文件小
+            # 嘗試多種格式，確保至少有一種可用
+            'format': 'worst[filesize<50M]/worst/best[filesize<50M]/best',
             'quiet': True,
             'no_warnings': True,
         }
