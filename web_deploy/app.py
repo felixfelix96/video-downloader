@@ -317,13 +317,14 @@ def download_video_task(task_id, url):
                 task['progress'] = 100
                 print(f"[{task_id}] yt-dlp 報告下載完成")
         
-        # 基礎配置
+        # 基礎配置 - v3.2 版本：移除 max_filesize 限制
         ydl_opts = {
             'outtmpl': str(DOWNLOAD_DIR / f'{task_id}.%(ext)s'),
             'progress_hooks': [progress_hook],
             'quiet': False,
             'no_warnings': False,
             'merge_output_format': 'mp4',
+            # 注意：不在這裡設置 max_filesize，讓 yt-dlp 先完成下載
         }
         
         # 構建請求頭
